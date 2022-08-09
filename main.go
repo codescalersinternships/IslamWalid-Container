@@ -33,8 +33,14 @@ func Run(command string, args []string) {
     cmd.Stdout = os.Stdout
     cmd.Stderr = os.Stderr
     cmd.SysProcAttr = &syscall.SysProcAttr{
-    	Cloneflags:   syscall.CLONE_NEWUTS | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS,
+        Credential: &syscall.Credential{
+            Uid: uint32(os.Getuid()),
+            Gid: uint32(os.Getgid()),
+        },
+        Cloneflags:   syscall.CLONE_NEWUTS | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUSER,
         Unshareflags: syscall.CLONE_NEWNS,
+        UidMappings:  []syscall.SysProcIDMap{{ContainerID: 0, HostID: os.Getuid(), Size: 1}},
+        GidMappings:  []syscall.SysProcIDMap{{ContainerID: 0, HostID: os.Getgid(), Size: 1}},
     }
 
     must(cmd.Run())
@@ -46,9 +52,10 @@ func Child(command string, args []string) {
 
     // Setup the new root
     must(syscall.Sethostname([]byte("container")))
-    must(syscall.Chroot("/home/islam/Work/alpine-fs"))
+    must(syscall.Chroot("./rootfs"))
     must(os.Chdir("/"))
     must(syscall.Mount("proc", "proc", "proc", 0, ""))
+    must(syscall.Mount("dev", "dev", "tmpfs", 0, ""))
 
     cmd := exec.Command(command, args...)
     cmd.Stdin = os.Stdin
@@ -59,14 +66,14 @@ func Child(command string, args []string) {
 
     // Clean up
     must(syscall.Unmount("/proc", 0))
+    must(syscall.Unmount("/dev", 0))
 }
 
 func CreateCgroup() {
-    containerPidsDir := "/sys/fs/cgroup/pids/islam-container"
+    containerPidsDir := "/sys/fs/cgroup/pids"
     os.Mkdir(containerPidsDir, 0755)
 
     must(os.WriteFile(path.Join(containerPidsDir, "pids.max"), []byte(ProcessesLimit), 0700))
-    must(os.WriteFile(path.Join(containerPidsDir, "notify_on_release"), []byte("1"), 0700))
     must(os.WriteFile(path.Join(containerPidsDir, "cgroup.procs"), []byte(strconv.Itoa(os.Getpid())), 0700))
 }
 

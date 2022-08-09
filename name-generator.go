@@ -6,7 +6,7 @@ import (
 )
 
 var (
-    left = [...]string{
+    left = []string{
         "admiring",
         "adoring",
         "affectionate",
@@ -28,7 +28,7 @@ var (
         "condescending",
         "confident",
     }
-    right = [...]string{
+    right = []string{
         "agnesi",
         "albattani",
         "allen",
