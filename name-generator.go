@@ -55,7 +55,7 @@ var (
 func NameGenerator() string {
     source := rand.NewSource(time.Now().UnixNano())
     generator := rand.New(source)
-    leftn := generator.Intn(20)
-    rightn := generator.Intn(20)
+    leftn := generator.Intn(len(left))
+    rightn := generator.Intn(len(right))
     return left[leftn] + "_" + right[rightn]
 }
