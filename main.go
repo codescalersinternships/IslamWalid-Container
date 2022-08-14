@@ -12,22 +12,29 @@ import (
 const ProcessesLimit = "10"
 
 func main() {
-    if len(os.Args) < 2 {
-        panic("Few arguments")
+    if len(os.Args) < 3 {
+        fmt.Fprintf(os.Stderr, "to few arguments")
+        os.Exit(1)
     }
 
     switch os.Args[1] {
     case "run":
-        Run(os.Args[2], os.Args[3:])
+        err := Run(os.Args[2], os.Args[3:])
+        if err != nil {
+            fmt.Fprintf(os.Stderr, err.Error())
+        }
+        os.Exit(1)
     case "child":
-        Child(os.Args[2], os.Args[3:])
-    default:
-        panic("Bad usage")
+        err := Child(os.Args[2], os.Args[3:])
+        if err != nil {
+            fmt.Fprintf(os.Stderr, err.Error())
+        }
+        os.Exit(1)
     }
 }
 
 // Start the parent process of the container
-func Run(command string, args []string) {
+func Run(command string, args []string) error {
     cmd := exec.Command("/proc/self/exe", append([]string{"child", command}, args...)...)
     cmd.Stdin = os.Stdin
     cmd.Stdout = os.Stdout
@@ -43,43 +50,86 @@ func Run(command string, args []string) {
         GidMappings:  []syscall.SysProcIDMap{{ContainerID: 0, HostID: os.Getgid(), Size: 1}},
     }
 
-    must(cmd.Run())
+    err := cmd.Run()
+    if err != nil {
+        return err
+    }
+
+    return nil
 }
 
 // Start a child process to execute given command
-func Child(command string, args []string) {
+func Child(command string, args []string) error {
     fmt.Printf("Running %v with pid %d\n", append([]string{command}, args...), os.Getpid())
 
     // Setup the new root
-    must(syscall.Sethostname([]byte("container")))
-    must(syscall.Chroot("./rootfs"))
-    must(os.Chdir("/"))
-    must(syscall.Mount("proc", "proc", "proc", 0, ""))
-    must(syscall.Mount("dev", "dev", "tmpfs", 0, ""))
+    err := syscall.Sethostname([]byte("container"))
+    if err != nil {
+        return err
+    }
+
+    err = CreateCgroup()
+    if err != nil {
+        return err
+    }
+
+    err = syscall.Chroot("./rootfs")
+    if err != nil {
+        return err
+    }
+
+    err = os.Chdir("/")
+    if err != nil {
+        return err
+    }
+
+    err = syscall.Mount("proc", "proc", "proc", 0, "")
+    if err != nil {
+        return err
+    }
+
+    err = syscall.Mount("dev", "dev", "tmpfs", 0, "")
+    if err != nil {
+        return err
+    }
 
     cmd := exec.Command(command, args...)
     cmd.Stdin = os.Stdin
     cmd.Stdout = os.Stdout
     cmd.Stderr = os.Stderr
 
-    must(cmd.Run())
+    err = cmd.Run()
+    if err != nil {
+        return err
+    }
 
     // Clean up
-    must(syscall.Unmount("/proc", 0))
-    must(syscall.Unmount("/dev", 0))
+    err = syscall.Unmount("/proc", 0)
+    if err != nil {
+        return err
+    }
+
+    err = syscall.Unmount("/dev", 0)
+    if err != nil {
+        return err
+    }
+
+    return nil
 }
 
-func CreateCgroup() {
+func CreateCgroup() error {
     containerPidsDir := "/sys/fs/cgroup/pids"
     os.Mkdir(containerPidsDir, 0755)
 
-    must(os.WriteFile(path.Join(containerPidsDir, "pids.max"), []byte(ProcessesLimit), 0700))
-    must(os.WriteFile(path.Join(containerPidsDir, "cgroup.procs"), []byte(strconv.Itoa(os.Getpid())), 0700))
-}
-
-// always panic on errors
-func must(err error) {
+    err := os.WriteFile(path.Join(containerPidsDir, "pids.max"), []byte(ProcessesLimit), 0700)
     if err != nil {
-        panic(err)
+        return err
     }
+
+    err = os.WriteFile(path.Join(containerPidsDir, "cgroup.procs"), []byte(strconv.Itoa(os.Getpid())), 0700)
+    if err != nil {
+        return err
+    }
+
+    return nil
 }
